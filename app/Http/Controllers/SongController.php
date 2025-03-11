@@ -7,19 +7,54 @@ use App\Models\Song;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
+
 class SongController extends Controller
 {
-    public function index()
-    {
-        $songs = Song::with(['singer', 'genre'])->get();
-        return SongResource::collection($songs);
-    }
+    public function index(Request $request)
+{
+    $query = $request->input('query');
     
-    public function show($id)
-    {
-        $song = Song::with(['singer', 'genre'])->findOrFail($id);
-        return new SongResource($song);
-    }
+    $songs = Song::with(['singer', 'genre'])
+        ->when($query, function ($q) use ($query) {
+            $q->where('title', 'LIKE', "%{$query}%")->orWhereHas('singer', function ($subQuery) use ($query) {
+                $subQuery->where('name', 'LIKE', "%{$query}%");
+            })->orWhereHas('genre', function ($subQuery) use ($query) {
+                $subQuery->where('name', 'LIKE', "%{$query}%");
+            });
+        })
+        ->get();
+
+    $songs = $songs->map(function ($song) {
+        return [
+            'id' => $song->id,
+            'title' => $song->title,
+            'singer_name' => $song->singer->name ?? null,
+            'genre_name' => $song->genre->name ?? null,
+            'cover_image' => $song->cover_image,
+            'duration' => $song->duration,
+            'duration_formatted' => $song->duration ? gmdate('i:s', $song->duration) : null,
+            'file_url' => route('songs.stream', $song->id),
+        ];
+    });
+
+    return response()->json(['data' => $songs]);
+}
+
+public function show($id)
+{
+    $song = Song::with(['singer', 'genre'])->findOrFail($id);
+    
+    return response()->json([ 'data' => [
+        'id' => $song->id,
+        'title' => $song->title,
+        'singer_name' => $song->singer->name ?? null,
+        'genre_name' => $song->genre->name ?? null,
+        'cover_image' => $song->cover_image,
+        'duration' => $song->duration,
+        'duration_formatted' => $song->duration ? gmdate('i:s', $song->duration) : null,
+        'file_url' => route('songs.stream', $song->id),]
+    ]);
+}
     
     public function search(Request $request)
     {
